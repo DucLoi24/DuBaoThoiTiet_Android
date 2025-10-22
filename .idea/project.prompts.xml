@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="PromptTemplates">
+    <option name="builtInPromptOverrides">
+      <list>
+        <BuiltInPromptOverride>
+          <option name="groupId" value="rules" />
+          <option name="promptId" value="project" />
+          <option name="text" value="***LUẬT TRONG ỨNG DỤNG THỜI TIẾT&#10;- Không bắt người dùng đăng nhập khi mới vào app&#10;- Khi người dùng tìm kiếm thành phố mà ghi tiếng Việt có dấu thì khi call API phải chuyển thành tiếng Việt không dấu&#10;- Khi bấm vào ngày hoặc giờ thì sẽ chuyển sang màu khác để dễ phân biệt hơn&#10;- BASE URL là http://127.0.0.1:8000/&#10;- Hiện tại đang chạy trên máy riêng qua cáp USB&#10;- Có nút để trở lại vị trí hiện tại, thời điểm hiện tại khi xem thành phố, thời điểm khác&#10;- Dự báo trong khoảng 7 ngày&#10;- App có thể cuộn lên xuống được" />
+        </BuiltInPromptOverride>
+      </list>
+    </option>
+  </component>
+</project>
