@@ -18,7 +18,8 @@ class WeatherViewModel : ViewModel() {
         viewModelScope.launch {
             try {
                 // Sửa lời gọi hàm thành 'getWeather' và truyền đúng tham số
-                val response = RetrofitInstance.api.getWeather(city = city, days = 3)
+                // THAY ĐỔI Ở ĐÂY: từ days = 3 thành days = 7
+                val response = RetrofitInstance.api.getWeather(city = city, days = 7) //
                 _weatherResult.postValue(Result.success(response))
             } catch (e: Exception) {
                 Log.e("WeatherViewModel", "Error fetching weather data", e)

@@ -1,6 +1,10 @@
+// [CODE ĐÃ SỬA]
+// File: ducloi24/dubaothoitiet_android/DuBaoThoiTiet_Android-2b9b1bce38080456d03269ccf28974eeaac2c36e/app/src/main/java/com/example/dubaothoitiet/MainActivity.kt
+
 package com.example.dubaothoitiet
 
 import android.Manifest
+import android.content.pm.PackageManager // THÊM IMPORT
 import android.os.Bundle
 import android.util.Log
 import androidx.activity.ComponentActivity
@@ -11,17 +15,18 @@ import androidx.activity.viewModels
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.* // THÊM IMPORT Box
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.ExitToApp // THÊM IMPORT
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WindPower
-import androidx.compose.material3.*
+import androidx.compose.material3.* // THÊM IMPORT (DropdownMenu, DropdownMenuItem)
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
@@ -124,9 +129,33 @@ fun WeatherApp(
         }
     )
 
+    // --- [YÊU CẦU 1: TỰ ĐỘNG LẤY VỊ TRÍ KHI MỞ APP] ---
     LaunchedEffect(Unit) {
-        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        // 1. Kiểm tra xem đã có quyền chưa
+        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            // 2. Nếu đã có quyền, lấy vị trí ngay
+            try {
+                fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                    if (location != null) {
+                        val lat = location.latitude
+                        val lon = location.longitude
+                        city = "Vị trí hiện tại"
+                        weatherViewModel.getWeather("$lat,$lon")
+                    } else {
+                        // Nếu có quyền nhưng không lấy được (GPS tắt?), yêu cầu lại
+                        locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+                    }
+                }
+            } catch (e: SecurityException) {
+                // Lỗi bảo mật, yêu cầu lại quyền
+                locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        } else {
+            // 3. Nếu chưa có quyền, yêu cầu quyền
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
     }
+    // --- [KẾT THÚC YÊU CẦU 1] ---
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -134,20 +163,58 @@ fun WeatherApp(
             TopAppBar(
                 title = { Text("Dự báo thời tiết") },
                 actions = {
+                    // Nút 1: Lấy vị trí hiện tại (Giữ nguyên)
                     IconButton(onClick = {
                         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
                     }) {
                         Icon(Icons.Default.MyLocation, contentDescription = "Vị trí hiện tại")
                     }
-                    IconButton(onClick = {
-                        if (user == null) {
-                            showAuthDialog = true
-                        } else {
-                            authViewModel.logout()
+
+                    // --- [YÊU CẦU 2 & SỬA LỖI SMART CAST] ---
+                    var showMenu by remember { mutableStateOf(false) }
+
+                    // [SỬA LỖI]: Tạo một biến local từ 'user'
+                    val currentUser = user
+
+                    if (currentUser == null) {
+                        // CHƯA ĐĂNG NHẬP: Bấm vào để mở Dialog
+                        IconButton(onClick = { showAuthDialog = true }) {
+                            Icon(Icons.Default.AccountCircle, contentDescription = "Tài khoản")
                         }
-                    }) {
-                        Icon(Icons.Default.AccountCircle, contentDescription = "Tài khoản")
+                    } else {
+                        // ĐÃ ĐĂNG NHẬP: Hiển thị tên và menu (Sử dụng currentUser)
+                        Box {
+                            Row(
+                                modifier = Modifier
+                                    .clickable { showMenu = true }
+                                    .padding(8.dp), // Thêm padding cho dễ bấm
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // SỬA LỖI: Username của bạn đang được lưu trong trường 'email'
+                                Text(currentUser.email ?: "User") // [SỬA LỖI]: Dùng currentUser
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(Icons.Default.AccountCircle, contentDescription = "Tài khoản")
+                            }
+
+                            DropdownMenu(
+                                expanded = showMenu,
+                                onDismissRequest = { showMenu = false }
+                            ) {
+                                DropdownMenuItem(
+                                    text = { Text("Đăng xuất") },
+                                    onClick = {
+                                        authViewModel.logout()
+                                        userViewModel.onLogout()
+                                        showMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.ExitToApp, contentDescription = "Đăng xuất")
+                                    }
+                                )
+                            }
+                        }
                     }
+                    // --- [KẾT THÚC YÊU CẦU 2] ---
                 }
             )
         }
@@ -175,10 +242,11 @@ fun WeatherApp(
                     weatherViewModel.getWeather(searchCity)
                 },
                 onTrackLocation = { weatherResponse: WeatherResponse ->
-                    val userId = user?.userId
-                    if (userId != null) {
+                    // [SỬA LỖI]: Dùng currentUser để kiểm tra
+                    val currentUser = user
+                    if (currentUser != null) {
                         locationViewModel.trackLocation(
-                            userId = userId,
+                            userId = currentUser.userId, // [SỬA LỖI]: Dùng currentUser
                             name = weatherResponse.location.name,
                             nameEn = removeVietnameseAccents(weatherResponse.location.name),
                             lat = weatherResponse.location.lat,
@@ -186,7 +254,7 @@ fun WeatherApp(
                         )
                     }
                 },
-                isLoggedIn = user != null
+                isLoggedIn = (user != null) // Kiểm tra user gốc
             )
         }
     }
@@ -293,6 +361,9 @@ fun WeatherScreen(
     }
 }
 
+// ... (Các hàm Composable còn lại: CurrentWeather, DailyForecast, HourlyForecast, ...)
+// ... (GIỮ NGUYÊN KHÔNG THAY ĐỔI) ...
+
 @Composable
 fun CurrentWeather(weather: WeatherResponse) {
     Text(
@@ -335,6 +406,7 @@ fun DailyForecast(
     onDaySelected: (ForecastDay) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
+        // TIÊU ĐỀ ĐÃ ĐÚNG LÀ 7 NGÀY
         Text("Dự báo 7 ngày", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -370,7 +442,7 @@ fun DailyForecast(
                         )
                         Text(
                             "${forecastDay.day.maxTempC}° / ${forecastDay.day.minTempC}°",
-                             style = MaterialTheme.typography.bodyMedium
+                            style = MaterialTheme.typography.bodyMedium
                         )
                     }
                 }
@@ -412,7 +484,7 @@ fun HourlyForecast(
                             fontWeight = FontWeight.Bold
                         )
                         Image(
-                            painter = rememberAsyncImagePainter("https:${hour.condition.icon}"),
+                            painter = rememberAsyncImagePainter("https:${hour.condition.icon}"), // Xóa dấu ** bị thừa
                             contentDescription = hour.condition.text,
                             modifier = Modifier.size(40.dp)
                         )

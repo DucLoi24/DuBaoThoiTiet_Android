@@ -5,7 +5,13 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -30,6 +36,7 @@ import com.example.dubaothoitiet.viewmodel.AuthViewModel
 import com.example.dubaothoitiet.viewmodel.UserViewModel
 import com.example.dubaothoitiet.viewmodel.AuthState
 
+
 @Composable
 fun AuthScreen(
     authViewModel: AuthViewModel,
@@ -39,12 +46,12 @@ fun AuthScreen(
     val authState by authViewModel.authState.collectAsState()
     var isLoginScreen by remember { mutableStateOf(true) }
 
-    // Reset state every time the screen is composed
+    // Reset state mỗi khi màn hình được compose
     LaunchedEffect(Unit) {
         authViewModel.resetState()
     }
 
-    // On successful authentication, update user state and navigate back.
+    // Khi xác thực thành công, cập nhật user state và đóng dialog
     LaunchedEffect(authState) {
         val state = authState
         if (state is AuthState.Authenticated) {
@@ -53,42 +60,64 @@ fun AuthScreen(
         }
     }
 
-    Column(
+    // [THAY ĐỔI] Bọc toàn bộ nội dung trong một Card
+    Card(
         modifier = Modifier
-            .fillMaxSize()
-            .padding(16.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally
+            .fillMaxWidth()
+            .wrapContentHeight(), // Co lại theo nội dung
+        shape = MaterialTheme.shapes.large, // Bo góc lớn
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface // Dùng màu nền chuẩn của Theme
+        ),
+        elevation = CardDefaults.cardElevation(8.dp) // Thêm đổ bóng
     ) {
-        Text(
-            text = if (isLoginScreen) "Đăng Nhập" else "Đăng Ký",
-            style = MaterialTheme.typography.headlineLarge
-        )
-        Spacer(modifier = Modifier.height(32.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(24.dp), // Thêm padding bên trong Card
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
 
-        if (isLoginScreen) {
-            LoginContent(authViewModel)
-        } else {
-            RegisterContent(authViewModel)
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        when (val state = authState) {
-            is AuthState.Loading -> CircularProgressIndicator()
-            is AuthState.Error -> Text(
-                text = state.message,
-                color = MaterialTheme.colorScheme.error
+            // [THÊM] Icon để trông đẹp hơn
+            Icon(
+                imageVector = Icons.Default.Lock,
+                contentDescription = "Authentication",
+                modifier = Modifier.size(40.dp),
+                tint = MaterialTheme.colorScheme.primary
             )
-            else -> {}
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = if (isLoginScreen) "Đăng Nhập" else "Đăng Ký",
+                style = MaterialTheme.typography.headlineLarge
+            )
+            Spacer(modifier = Modifier.height(32.dp))
+
+            if (isLoginScreen) {
+                LoginContent(authViewModel)
+            } else {
+                RegisterContent(authViewModel)
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            when (val state = authState) {
+                is AuthState.Loading -> CircularProgressIndicator()
+                is AuthState.Error -> Text(
+                    text = state.message,
+                    color = MaterialTheme.colorScheme.error
+                )
+                else -> {}
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            AuthToggle(isLoginScreen = isLoginScreen, onToggle = {
+                isLoginScreen = !isLoginScreen
+                authViewModel.resetState() // Reset state khi chuyển tab
+            })
         }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        AuthToggle(isLoginScreen = isLoginScreen, onToggle = {
-            isLoginScreen = !isLoginScreen
-            authViewModel.resetState() // Also reset state when toggling
-        })
     }
 }
 
