@@ -1,6 +1,3 @@
-// [CODE ĐÃ SỬA]
-// File: ducloi24/dubaothoitiet_android/DuBaoThoiTiet_Android-2b9b1bce38080456d03269ccf28974eeaac2c36e/app/src/main/java/com/example/dubaothoitiet/MainActivity.kt
-
 package com.example.dubaothoitiet
 
 import android.Manifest
@@ -26,6 +23,9 @@ import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WindPower
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.* // THÊM IMPORT (DropdownMenu, DropdownMenuItem)
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
@@ -48,6 +48,10 @@ import com.example.dubaothoitiet.viewmodel.AuthViewModel
 import com.example.dubaothoitiet.viewmodel.LocationViewModel
 import com.example.dubaothoitiet.viewmodel.UserViewModel
 import com.example.dubaothoitiet.viewmodel.WeatherViewModel
+import com.example.dubaothoitiet.viewmodel.AlertViewModel
+import com.example.dubaothoitiet.viewmodel.AdviceViewModel
+import com.example.dubaothoitiet.viewmodel.AdviceState
+import com.example.dubaothoitiet.data.ExtremeAlert
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
 import retrofit2.HttpException
@@ -61,12 +65,14 @@ class MainActivity : ComponentActivity() {
     private val authViewModel: AuthViewModel by viewModels()
     private val userViewModel: UserViewModel by viewModels()
     private val locationViewModel: LocationViewModel by viewModels()
+    private val alertViewModel: AlertViewModel by viewModels()
+    private val adviceViewModel: AdviceViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             DuBaoThoiTietTheme {
-                WeatherApp(weatherViewModel, authViewModel, userViewModel, locationViewModel)
+                WeatherApp(weatherViewModel, authViewModel, userViewModel, locationViewModel, alertViewModel, adviceViewModel)
             }
         }
     }
@@ -85,18 +91,21 @@ fun WeatherApp(
     weatherViewModel: WeatherViewModel,
     authViewModel: AuthViewModel,
     userViewModel: UserViewModel,
-    locationViewModel: LocationViewModel
+    locationViewModel: LocationViewModel,
+    alertViewModel: AlertViewModel,
+    adviceViewModel: AdviceViewModel
 ) {
     val weatherResult by weatherViewModel.weatherResult.observeAsState()
     var city by remember { mutableStateOf("Hanoi") }
     val user by userViewModel.user.observeAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
+    val alertsResult by alertViewModel.alerts.observeAsState()
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-
+    val adviceState = adviceViewModel.adviceState
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -156,6 +165,17 @@ fun WeatherApp(
         }
     }
     // --- [KẾT THÚC YÊU CẦU 1] ---
+
+    LaunchedEffect(weatherResult) {
+        val weatherData = weatherResult?.getOrNull()
+        if (weatherData != null) {
+            // Lấy tên không dấu để gọi API alerts
+            val locationNameEn = removeVietnameseAccents(weatherData.location.name)
+            alertViewModel.fetchAlerts(locationNameEn)
+        } else {
+            alertViewModel.clearAlerts() // Xóa cảnh báo cũ nếu không có dữ liệu thời tiết
+        }
+    }
 
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -233,13 +253,18 @@ fun WeatherApp(
                 }
             }
 
+
+
             WeatherScreen(
+                adviceViewModel = adviceViewModel,
                 weatherResult = weatherResult,
+                alertsResult = alertsResult,
                 city = city,
                 onCityChange = { city = it },
                 onSearch = {
                     val searchCity = removeVietnameseAccents(city)
                     weatherViewModel.getWeather(searchCity)
+                    alertViewModel.clearAlerts()
                 },
                 onTrackLocation = { weatherResponse: WeatherResponse ->
                     // [SỬA LỖI]: Dùng currentUser để kiểm tra
@@ -264,6 +289,8 @@ fun WeatherApp(
 @Composable
 fun WeatherScreen(
     weatherResult: Result<WeatherResponse>?,
+    alertsResult: Result<List<ExtremeAlert>>?,
+    adviceViewModel: AdviceViewModel,
     city: String,
     onCityChange: (String) -> Unit,
     onSearch: () -> Unit,
@@ -273,6 +300,8 @@ fun WeatherScreen(
     var selectedDay by remember { mutableStateOf<ForecastDay?>(null) }
     var selectedHour by remember { mutableStateOf<Hour?>(null) }
     val weatherData = weatherResult?.getOrNull()
+    val adviceState = adviceViewModel.adviceState
+    val context = LocalContext.current
 
     // Reset selection when weather data changes
     LaunchedEffect(weatherData) {
@@ -302,6 +331,29 @@ fun WeatherScreen(
                 result.isSuccess -> {
                     if (weatherData != null) {
                         CurrentWeather(weather = weatherData)
+
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                val locationNameEn = removeVietnameseAccents(weatherData.location.name)
+                                adviceViewModel.fetchAdvice(locationNameEn)
+                            },
+                            // Chỉ bật nút khi có dữ liệu thời tiết và không đang loading lời khuyên
+                            enabled = adviceViewModel.adviceState !is AdviceState.Loading
+                        ) {
+                            Text("💡 Nhận Lời khuyên/Cảnh báo AI")
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        AdviceResultSection(
+                            adviceState = adviceState,
+                            onDismiss = { adviceViewModel.dismissAdvice() } // Để có nút "Ẩn"
+                        )
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Spacer(modifier = Modifier.height(16.dp))
+                        AlertSection(alertsResult = alertsResult)
 
                         if (isLoggedIn) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -571,5 +623,200 @@ fun InfoItem(value: String, label: String, icon: ImageVector) {
         Spacer(modifier = Modifier.height(4.dp))
         Text(text = value, fontWeight = FontWeight.Bold, fontSize = 16.sp)
         Text(text = label, fontSize = 12.sp, color = Color.Gray)
+    }
+}
+
+@Composable
+fun AlertSection(alertsResult: Result<List<ExtremeAlert>>?) {
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("⚠️ Cảnh báo Rủi ro", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.error)
+        Spacer(modifier = Modifier.height(8.dp))
+
+        when {
+            // Đang tải hoặc chưa có kết quả
+            alertsResult == null -> {
+                // Box(modifier = Modifier.fillMaxWidth().height(50.dp), contentAlignment = Alignment.Center) {
+                //     CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                // }
+                // Hoặc không hiển thị gì cả nếu đang tải
+            }
+            // Tải lỗi
+            alertsResult.isFailure -> {
+                Text("Không thể tải cảnh báo. Vui lòng kiểm tra mạng.", color = MaterialTheme.colorScheme.error)
+            }
+            // Tải thành công
+            alertsResult.isSuccess -> {
+                val alerts = alertsResult.getOrNull()
+                if (alerts.isNullOrEmpty()) {
+                    Card(modifier = Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = Color(0xFFE0F2F7))) { // Màu xanh nhạt
+                        Text(
+                            text = "✅ Không có cảnh báo rủi ro nào được ghi nhận trong 24 giờ qua.",
+                            modifier = Modifier.padding(16.dp),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    // Hiển thị danh sách cảnh báo
+                    alerts.forEach { alert ->
+                        AlertCard(alert = alert)
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun AlertCard(alert: ExtremeAlert) {
+    // Chọn màu nền dựa trên mức độ nghiêm trọng
+    val cardColor = when (alert.severity.uppercase()) {
+        "CRITICAL" -> Color(0xFFFDECEA) // Đỏ rất nhạt
+        "HIGH" -> Color(0xFFFFF9C4) // Vàng nhạt
+        "MEDIUM" -> Color(0xFFE3F2FD) // Xanh dương nhạt
+        else -> MaterialTheme.colorScheme.surfaceVariant
+    }
+    // Chọn màu chữ dựa trên mức độ nghiêm trọng
+    val textColor = when (alert.severity.uppercase()) {
+        "CRITICAL" -> Color(0xFFB71C1C) // Đỏ đậm
+        "HIGH" -> Color(0xFFF57F17) // Cam đậm
+        "MEDIUM" -> Color(0xFF0D47A1) // Xanh dương đậm
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = cardColor),
+        elevation = CardDefaults.cardElevation(2.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "${alert.impactField}: ${alert.severity}",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = textColor
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = alert.forecastDetailsVi,
+                style = MaterialTheme.typography.bodyMedium
+            )
+            // Hiển thị lời khuyên nếu có
+            alert.actionableAdviceVi?.let { advice ->
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "➡️ Khuyến nghị: $advice",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Phân tích lúc: ${alert.analysisTime.replace("T", " ").substringBeforeLast(".")}", // Format lại thời gian chút
+                style = MaterialTheme.typography.labelSmall,
+                color = Color.Gray
+            )
+        }
+    }
+}
+
+@Composable
+fun AdviceResultSection(
+    adviceState: AdviceState,
+    onDismiss: () -> Unit // Hàm để ẩn Card này đi
+) {
+    // Chỉ hiển thị Card khi State không phải là Idle
+    if (adviceState != AdviceState.Idle) {
+        // Xác định màu nền và icon dựa trên trạng thái
+        val cardColor: Color
+        val title: String
+        val icon: ImageVector? // Icon (có thể null)
+        val message: String?
+        val isLoading = adviceState is AdviceState.Loading
+
+        when (adviceState) {
+            is AdviceState.Loading -> {
+                cardColor = MaterialTheme.colorScheme.surfaceVariant
+                title = "Đang lấy lời khuyên từ AI..."
+                icon = null // Không cần icon khi loading
+                message = null
+            }
+            is AdviceState.Success -> {
+                if (adviceState.response.type == "warning") {
+                    cardColor = Color(0xFFFFF9C4) // Vàng nhạt cho warning
+                    title = "⚠️ Cảnh báo từ AI"
+                    icon = Icons.Default.Warning // Icon cảnh báo
+                    message = adviceState.response.messageVi
+                } else { // advice
+                    cardColor = Color(0xFFE3F2FD) // Xanh nhạt cho advice
+                    title = "💡 Lời khuyên từ AI"
+                    icon = Icons.Default.Info // Icon thông tin
+                    message = adviceState.response.messageVi
+                }
+            }
+            is AdviceState.Error -> {
+                cardColor = Color(0xFFFDECEA) // Đỏ nhạt cho error
+                title = " Lỗi"
+                icon = Icons.Default.Error // Icon lỗi
+                message = adviceState.message
+            }
+            else -> { // Idle (sẽ không hiển thị Card)
+                return
+            }
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = cardColor),
+            elevation = CardDefaults.cardElevation(2.dp)
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween // Đẩy nút "Ẩn" sang phải
+                ) {
+                    // Tiêu đề và Icon (nếu có)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        icon?.let {
+                            Icon(imageVector = it, contentDescription = title, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                        }
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    // Nút "Ẩn" (chỉ hiện khi không loading)
+                    if (!isLoading) {
+                        Text(
+                            text = "Ẩn",
+                            modifier = Modifier
+                                .clickable(onClick = onDismiss)
+                                .padding(4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Nội dung (Loading hoặc Message)
+                if (isLoading) {
+                    Box(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(modifier=Modifier.size(24.dp))
+                    }
+                } else {
+                    message?.let {
+                        Text(
+                            text = it,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                }
+            }
+        }
     }
 }
