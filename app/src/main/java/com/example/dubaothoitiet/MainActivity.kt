@@ -51,6 +51,8 @@ import com.example.dubaothoitiet.viewmodel.WeatherViewModel
 import com.example.dubaothoitiet.viewmodel.AlertViewModel
 import com.example.dubaothoitiet.viewmodel.AdviceViewModel
 import com.example.dubaothoitiet.viewmodel.AdviceState
+import com.example.dubaothoitiet.viewmodel.CombinedAdviceViewModel
+import com.example.dubaothoitiet.viewmodel.CombinedAdviceUiState
 import com.example.dubaothoitiet.data.ExtremeAlert
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
@@ -59,20 +61,21 @@ import java.text.Normalizer
 import java.text.SimpleDateFormat
 import java.util.*
 import java.util.regex.Pattern
+import androidx.compose.material.icons.filled.WaterDrop
+import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
     private val weatherViewModel: WeatherViewModel by viewModels()
     private val authViewModel: AuthViewModel by viewModels()
     private val userViewModel: UserViewModel by viewModels()
     private val locationViewModel: LocationViewModel by viewModels()
-    private val alertViewModel: AlertViewModel by viewModels()
-    private val adviceViewModel: AdviceViewModel by viewModels()
+    private val combinedAdviceViewModel: CombinedAdviceViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             DuBaoThoiTietTheme {
-                WeatherApp(weatherViewModel, authViewModel, userViewModel, locationViewModel, alertViewModel, adviceViewModel)
+                WeatherApp(weatherViewModel, authViewModel, userViewModel, locationViewModel, combinedAdviceViewModel)
             }
         }
     }
@@ -92,20 +95,17 @@ fun WeatherApp(
     authViewModel: AuthViewModel,
     userViewModel: UserViewModel,
     locationViewModel: LocationViewModel,
-    alertViewModel: AlertViewModel,
-    adviceViewModel: AdviceViewModel
+    combinedAdviceViewModel: CombinedAdviceViewModel
 ) {
     val weatherResult by weatherViewModel.weatherResult.observeAsState()
     var city by remember { mutableStateOf("Hanoi") }
     val user by userViewModel.user.observeAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
-    val alertsResult by alertViewModel.alerts.observeAsState()
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
     val coroutineScope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    val adviceState = adviceViewModel.adviceState
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
@@ -171,9 +171,9 @@ fun WeatherApp(
         if (weatherData != null) {
             // Lấy tên không dấu để gọi API alerts
             val locationNameEn = removeVietnameseAccents(weatherData.location.name)
-            alertViewModel.fetchAlerts(locationNameEn)
+            combinedAdviceViewModel.checkOrFetchAdvice(locationNameEn)
         } else {
-            alertViewModel.clearAlerts() // Xóa cảnh báo cũ nếu không có dữ liệu thời tiết
+            combinedAdviceViewModel.resetState()
         }
     }
 
@@ -256,15 +256,14 @@ fun WeatherApp(
 
 
             WeatherScreen(
-                adviceViewModel = adviceViewModel,
                 weatherResult = weatherResult,
-                alertsResult = alertsResult,
+                combinedAdviceViewModel = combinedAdviceViewModel,
                 city = city,
                 onCityChange = { city = it },
                 onSearch = {
                     val searchCity = removeVietnameseAccents(city)
                     weatherViewModel.getWeather(searchCity)
-                    alertViewModel.clearAlerts()
+                    combinedAdviceViewModel.resetState()
                 },
                 onTrackLocation = { weatherResponse: WeatherResponse ->
                     // [SỬA LỖI]: Dùng currentUser để kiểm tra
@@ -289,8 +288,7 @@ fun WeatherApp(
 @Composable
 fun WeatherScreen(
     weatherResult: Result<WeatherResponse>?,
-    alertsResult: Result<List<ExtremeAlert>>?,
-    adviceViewModel: AdviceViewModel,
+    combinedAdviceViewModel: CombinedAdviceViewModel,
     city: String,
     onCityChange: (String) -> Unit,
     onSearch: () -> Unit,
@@ -300,7 +298,7 @@ fun WeatherScreen(
     var selectedDay by remember { mutableStateOf<ForecastDay?>(null) }
     var selectedHour by remember { mutableStateOf<Hour?>(null) }
     val weatherData = weatherResult?.getOrNull()
-    val adviceState = adviceViewModel.adviceState
+    val combinedState = combinedAdviceViewModel.uiState
     val context = LocalContext.current
 
     // Reset selection when weather data changes
@@ -331,29 +329,26 @@ fun WeatherScreen(
                 result.isSuccess -> {
                     if (weatherData != null) {
                         CurrentWeather(weather = weatherData)
-
                         Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = {
+//                        Button(
+//                            onClick = {
+//                                val locationNameEn = removeVietnameseAccents(weatherData.location.name)
+//                                combinedAdviceViewModel.generateNewAdvice(locationNameEn) // <-- SỬ DỤNG VIEWMODEL MỚI
+//                            },
+//                            enabled = combinedState !is CombinedAdviceUiState.Loading // <-- ĐÃ SỬA STATE
+//                        ) {
+//                            Text("💡 Nhận Lời khuyên/Cảnh báo AI")
+//                        }
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        CombinedAdviceSection(
+                            uiState = combinedState,
+                            onGenerateAdvice = {
                                 val locationNameEn = removeVietnameseAccents(weatherData.location.name)
-                                adviceViewModel.fetchAdvice(locationNameEn)
+                                combinedAdviceViewModel.generateNewAdvice(locationNameEn)
                             },
-                            // Chỉ bật nút khi có dữ liệu thời tiết và không đang loading lời khuyên
-                            enabled = adviceViewModel.adviceState !is AdviceState.Loading
-                        ) {
-                            Text("💡 Nhận Lời khuyên/Cảnh báo AI")
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AdviceResultSection(
-                            adviceState = adviceState,
-                            onDismiss = { adviceViewModel.dismissAdvice() } // Để có nút "Ẩn"
+                            onDismiss = { combinedAdviceViewModel.dismiss() }
                         )
-
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        AlertSection(alertsResult = alertsResult)
 
                         if (isLoggedIn) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -458,7 +453,6 @@ fun DailyForecast(
     onDaySelected: (ForecastDay) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        // TIÊU ĐỀ ĐÃ ĐÚNG LÀ 7 NGÀY
         Text("Dự báo 7 ngày", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
@@ -475,27 +469,64 @@ fun DailyForecast(
                 ) {
                     Column(
                         modifier = Modifier
-                            .padding(12.dp)
-                            .width(120.dp),
+                            .padding(12.dp) // Tăng padding nếu muốn rộng hơn
+                            .width(120.dp), // Có thể tăng width nếu cần
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
+                        verticalArrangement = Arrangement.Center // Căn giữa nội dung
                     ) {
+                        // Ngày tháng
                         Text(
                             text = SimpleDateFormat("EEE, dd/MM", Locale.getDefault()).format(
                                 SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).parse(forecastDay.date) ?: Date()
                             ),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 14.sp
+                            fontSize = 14.sp,
+                            maxLines = 1 // Đảm bảo chỉ 1 dòng
                         )
+                        Spacer(modifier = Modifier.height(4.dp)) // Thêm khoảng cách
+
+                        // Icon thời tiết
                         Image(
                             painter = rememberAsyncImagePainter("https:${forecastDay.day.condition.icon}"),
                             contentDescription = forecastDay.day.condition.text,
                             modifier = Modifier.size(40.dp)
                         )
+                        Spacer(modifier = Modifier.height(4.dp)) // Thêm khoảng cách
+
+                        // Nhiệt độ Max/Min
                         Text(
-                            "${forecastDay.day.maxTempC}° / ${forecastDay.day.minTempC}°",
-                            style = MaterialTheme.typography.bodyMedium
+                            // Làm tròn nhiệt độ cho gọn
+                            "${forecastDay.day.maxTempC.roundToInt()}° / ${forecastDay.day.minTempC.roundToInt()}°",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold // Đậm vừa
                         )
+
+                        // --- THÊM TỶ LỆ MƯA ---
+                        // Chỉ hiển thị nếu tỷ lệ > 0%
+                        if (forecastDay.day.dailyChanceOfRain > 0) {
+                            Spacer(modifier = Modifier.height(4.dp)) // Khoảng cách
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center // Căn giữa icon và text
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.WaterDrop, // Icon giọt nước
+                                    contentDescription = "Tỷ lệ mưa",
+                                    modifier = Modifier.size(12.dp), // Kích thước icon nhỏ
+                                    tint = Color(0xFF448AFF) // Màu xanh dương nhạt
+                                )
+                                Spacer(modifier = Modifier.width(2.dp)) // Khoảng cách nhỏ
+                                Text(
+                                    text = "${forecastDay.day.dailyChanceOfRain}%",
+                                    style = MaterialTheme.typography.labelSmall, // Font nhỏ hơn
+                                    color = Color(0xFF448AFF) // Cùng màu với icon
+                                )
+                            }
+                        } else {
+                            // Nếu không có mưa, thêm Spacer để giữ chiều cao ổn định (tùy chọn)
+                            Spacer(modifier = Modifier.height(18.dp)) // Chiều cao tương đương Row tỷ lệ mưa
+                        }
+                        // --- KẾT THÚC TỶ LỆ MƯA ---
                     }
                 }
             }
@@ -526,24 +557,60 @@ fun HourlyForecast(
                 ) {
                     Column(
                         modifier = Modifier
-                            .padding(12.dp)
-                            .width(80.dp),
+                            .padding(10.dp) // Giảm padding 1 chút
+                            .width(75.dp), // Có thể giảm width nếu cần
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
+                        // Thời gian (HH:mm)
                         Text(
-                            text = hour.time.split(" ")[1],
-                            fontWeight = FontWeight.Bold
+                            text = hour.time.split(" ")[1], // Lấy phần HH:mm
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp // Giảm cỡ chữ
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Icon thời tiết
                         Image(
-                            painter = rememberAsyncImagePainter("https:${hour.condition.icon}"), // Xóa dấu ** bị thừa
+                            painter = rememberAsyncImagePainter("https:${hour.condition.icon}"),
                             contentDescription = hour.condition.text,
-                            modifier = Modifier.size(40.dp)
+                            modifier = Modifier.size(32.dp) // Giảm kích thước icon
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        // Nhiệt độ
                         Text(
-                            text = "${hour.tempC}°",
-                            fontWeight = FontWeight.Bold
+                            text = "${hour.tempC.roundToInt()}°", // Làm tròn
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp // Giảm cỡ chữ
                         )
+
+                        // --- THÊM TỶ LỆ MƯA ---
+                        if (hour.chanceOfRain > 0) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.WaterDrop,
+                                    contentDescription = "Tỷ lệ mưa",
+                                    modifier = Modifier.size(10.dp), // Icon nhỏ hơn nữa
+                                    tint = Color(0xFF448AFF)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "${hour.chanceOfRain}%",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontSize = 10.sp, // Cỡ chữ nhỏ nhất
+                                    color = Color(0xFF448AFF)
+                                )
+                            }
+                        } else {
+                            // Spacer giữ chiều cao
+                            Spacer(modifier = Modifier.height(16.dp)) // Chiều cao tương đương Row tỷ lệ mưa
+                        }
+                        // --- KẾT THÚC TỶ LỆ MƯA ---
                     }
                 }
             }
@@ -817,6 +884,150 @@ fun AdviceResultSection(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun CombinedAdviceSection(
+    uiState: CombinedAdviceUiState,
+    onGenerateAdvice: () -> Unit,
+    onDismiss: () -> Unit // Hàm để ẩn Card kết quả
+) {
+    // Sử dụng AnimatedVisibility để có hiệu ứng xuất hiện/biến mất (tùy chọn)
+    // Hoặc dùng when như cũ nếu không cần hiệu ứng
+    when (uiState) {
+        CombinedAdviceUiState.Idle -> {
+            // Không hiển thị gì ở trạng thái ban đầu hoặc sau khi ẩn
+        }
+        CombinedAdviceUiState.Loading -> {
+            // Hiển thị loading indicator dạng Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                elevation = CardDefaults.cardElevation(1.dp) // Giảm độ nổi bật khi loading
+            ) {
+                Row(
+                    modifier = Modifier
+                        .padding(16.dp)
+                        .fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    CircularProgressIndicator(modifier = Modifier.size(24.dp))
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Text("Đang xử lý AI, vui lòng chờ...") // Thêm chữ "vui lòng chờ"
+                }
+            }
+        }
+        CombinedAdviceUiState.Stale -> {
+            // Hiển thị nút bấm
+            Button(
+                onClick = onGenerateAdvice,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("💡 Nhận Lời khuyên/Cảnh báo AI")
+            }
+        }
+        is CombinedAdviceUiState.Success -> {
+            // Hiển thị kết quả advice/warning
+            val adviceData = uiState.adviceData // Lấy dữ liệu từ state
+            val cardColor: Color
+            val title: String
+            val icon: ImageVector?
+
+            if (adviceData.type == "warning") {
+                cardColor = Color(0xFFFFF9C4) // Vàng nhạt
+                title = "⚠️ Cảnh báo từ AI"
+                icon = Icons.Default.Warning
+            } else { // advice hoặc trường hợp khác (mặc định là advice)
+                cardColor = Color(0xFFE3F2FD) // Xanh nhạt
+                title = "💡 Lời khuyên từ AI"
+                icon = Icons.Default.Info
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = cardColor),
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        // Icon và Tiêu đề
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            icon?.let {
+                                Icon(imageVector = it, contentDescription = title, modifier = Modifier.size(20.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                            }
+                            Text(
+                                text = title,
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        // Nút "Ẩn"
+                        Text(
+                            text = "Ẩn",
+                            modifier = Modifier
+                                .clickable(onClick = onDismiss) // Gọi hàm onDismiss khi bấm
+                                .padding(4.dp),
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    // Nội dung lời khuyên/cảnh báo
+                    Text(
+                        text = adviceData.messageVi ?: "Không có nội dung.", // Xử lý null
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    // Hiển thị thời gian tạo
+                    adviceData.generatedTime?.let { time ->
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            // Định dạng lại chuỗi thời gian
+                            text = "Cập nhật lúc: ${time.replace("T", " ").substringBeforeLast(".")}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Color.Gray
+                        )
+                    }
+                }
+            }
+        }
+        is CombinedAdviceUiState.Error -> {
+            // Hiển thị lỗi dạng Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFDECEA)), // Đỏ nhạt
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween // Để thêm nút "Ẩn"
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Error, contentDescription = "Lỗi", tint = MaterialTheme.colorScheme.error)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(uiState.message, color = MaterialTheme.colorScheme.error, modifier = Modifier.weight(1f)) // Cho text lỗi co giãn
+                    }
+                    // Nút "Ẩn" cho cả lỗi
+                    Text(
+                        text = "Ẩn",
+                        modifier = Modifier
+                            .clickable(onClick = onDismiss) // Gọi hàm onDismiss khi bấm
+                            .padding(start = 8.dp), // Thêm padding trái
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                }
+            }
+            // Cân nhắc thêm nút "Thử lại" ở đây nếu muốn:
+            // Button(onClick = onGenerateAdvice) { Text("Thử lại") }
         }
     }
 }

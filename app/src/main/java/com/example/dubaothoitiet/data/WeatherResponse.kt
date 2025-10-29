@@ -49,6 +49,7 @@ data class Day(
     @SerializedName("avgtemp_c") val avgTempC: Double,
     @SerializedName("maxwind_kph") val maxWindKph: Double,
     @SerializedName("avghumidity") val avgHumidity: Double,
+    @SerializedName("daily_chance_of_rain") val dailyChanceOfRain: Int,
     val uv: Double,
     val condition: Condition
 )
@@ -66,5 +67,6 @@ data class Hour(
     @SerializedName("wind_kph") val windKph: Double,
     val humidity: Int,
     @SerializedName("feelslike_c") val feelslikeC: Double,
-    val uv: Double
+    val uv: Double,
+    @SerializedName("chance_of_rain") val chanceOfRain: Int
 )

@@ -7,6 +7,7 @@ import com.example.dubaothoitiet.data.TrackLocationRequest
 import com.example.dubaothoitiet.data.WeatherResponse
 import com.example.dubaothoitiet.data.ExtremeAlert
 import com.example.dubaothoitiet.data.AdviceResponse
+import com.example.dubaothoitiet.data.CheckAdviceResponse
 import retrofit2.Response
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -42,6 +43,11 @@ interface WeatherApiService {
     suspend fun getAdvice(
         @Query("q") locationNameEn: String
     ): Response<AdviceResponse>
+
+    @GET("api/check-advice/")
+    suspend fun checkAdvice(
+        @Query("q") locationNameEn: String
+    ): Response<CheckAdviceResponse>
 }
 
 object RetrofitInstance {
