@@ -362,7 +362,7 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## 👥 Authors
 
-- **Your Name** - Initial work
+- **Đức Lợi** - Initial work
 
 ---
 
@@ -379,8 +379,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 Nếu bạn gặp vấn đề hoặc có câu hỏi, vui lòng:
 - Mở issue trên GitHub
-- Liên hệ qua email: your-email@example.com
+- Liên hệ qua email: ndlgaming2004@gmail.com
 
 ---
-
-**Made with ❤️ using Kotlin and Jetpack Compose**
