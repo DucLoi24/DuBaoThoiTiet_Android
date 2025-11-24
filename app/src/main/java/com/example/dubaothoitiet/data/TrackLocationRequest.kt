@@ -1,9 +1,11 @@
 package com.example.dubaothoitiet.data
 
+import com.google.gson.annotations.SerializedName
+
 data class TrackLocationRequest(
-    val userId: Int,
+    @SerializedName("user_id") val userId: Int,
     val name: String,
-    val nameEn: String,
-    val lat: Double,
-    val lon: Double
+    @SerializedName("name_en") val nameEn: String,
+    @SerializedName("latitude") val lat: Double,
+    @SerializedName("longitude") val lon: Double
 )

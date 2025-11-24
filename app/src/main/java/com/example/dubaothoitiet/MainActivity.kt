@@ -18,7 +18,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ExitToApp // THÊM IMPORT
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.MyLocation
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.WaterDrop
@@ -26,10 +28,13 @@ import androidx.compose.material.icons.filled.WindPower
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.* // THÊM IMPORT (DropdownMenu, DropdownMenuItem)
 import androidx.compose.runtime.*
 import androidx.compose.runtime.livedata.observeAsState
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -39,6 +44,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import coil.compose.rememberAsyncImagePainter
 import com.example.dubaothoitiet.data.ForecastDay
 import com.example.dubaothoitiet.data.Hour
@@ -53,6 +60,7 @@ import com.example.dubaothoitiet.viewmodel.AdviceViewModel
 import com.example.dubaothoitiet.viewmodel.AdviceState
 import com.example.dubaothoitiet.viewmodel.CombinedAdviceViewModel
 import com.example.dubaothoitiet.viewmodel.CombinedAdviceUiState
+import com.example.dubaothoitiet.viewmodel.TrackedLocationsViewModel
 import com.example.dubaothoitiet.data.ExtremeAlert
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.launch
@@ -75,7 +83,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             DuBaoThoiTietTheme {
-                WeatherApp(weatherViewModel, authViewModel, userViewModel, locationViewModel, combinedAdviceViewModel)
+                WeatherApp(
+                    weatherViewModel, 
+                    authViewModel, 
+                    userViewModel, 
+                    locationViewModel, 
+                    combinedAdviceViewModel
+                )
             }
         }
     }
@@ -101,6 +115,10 @@ fun WeatherApp(
     var city by remember { mutableStateOf("Hanoi") }
     val user by userViewModel.user.observeAsState()
     var showAuthDialog by remember { mutableStateOf(false) }
+    var showTrackedLocations by remember { mutableStateOf(false) }
+    var showNotificationSettings by remember { mutableStateOf(false) }
+    var showNotificationHistory by remember { mutableStateOf(false) }
+    var showLocationSettings by remember { mutableStateOf<Pair<Int, String>?>(null) } // Pair(locationId, locationName)
 
     val context = LocalContext.current
     val fusedLocationClient = remember { LocationServices.getFusedLocationProviderClient(context) }
@@ -166,6 +184,10 @@ fun WeatherApp(
     }
     // --- [KẾT THÚC YÊU CẦU 1] ---
 
+    // Kiểm tra xem có đang hiển thị màn hình phụ không
+    val showingSubScreen = showNotificationSettings || showNotificationHistory || 
+                          showTrackedLocations || showLocationSettings != null
+
     LaunchedEffect(weatherResult) {
         val weatherData = weatherResult?.getOrNull()
         if (weatherData != null) {
@@ -177,12 +199,44 @@ fun WeatherApp(
         }
     }
 
+    // Tự động cập nhật thời tiết mỗi 1 phút
+    LaunchedEffect(city, showingSubScreen) {
+        while (true) {
+            kotlinx.coroutines.delay(60 * 1000) // 1 phút
+            if (city.isNotEmpty() && !showingSubScreen) {
+                val searchCity = if (city == "Vị trí hiện tại") {
+                    // Nếu đang xem vị trí hiện tại, lấy lại vị trí
+                    try {
+                        if (context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+                            fusedLocationClient.lastLocation.addOnSuccessListener { location ->
+                                if (location != null) {
+                                    val lat = location.latitude
+                                    val lon = location.longitude
+                                    weatherViewModel.getWeather("$lat,$lon")
+                                }
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e("WeatherApp", "Error refreshing location", e)
+                    }
+                    null
+                } else {
+                    removeVietnameseAccents(city)
+                }
+                
+                searchCity?.let { weatherViewModel.getWeather(it) }
+            }
+        }
+    }
+    
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
-            TopAppBar(
-                title = { Text("Dự báo thời tiết") },
-                actions = {
+            // Chỉ hiển thị TopAppBar khi ở màn hình chính
+            if (!showingSubScreen) {
+                TopAppBar(
+                    title = { Text("Dự báo thời tiết") },
+                    actions = {
                     // Nút 1: Lấy vị trí hiện tại (Giữ nguyên)
                     IconButton(onClick = {
                         locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -221,10 +275,41 @@ fun WeatherApp(
                                 onDismissRequest = { showMenu = false }
                             ) {
                                 DropdownMenuItem(
+                                    text = { Text("Các vị trí đã theo dõi") },
+                                    onClick = {
+                                        Log.d("MainActivity", "TrackedLocations clicked, user=${currentUser?.userId}")
+                                        showTrackedLocations = true
+                                        showMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.MyLocation, contentDescription = "Vị trí đã theo dõi")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Cài đặt thông báo") },
+                                    onClick = {
+                                        showNotificationSettings = true
+                                        showMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.Settings, contentDescription = "Cài đặt thông báo")
+                                    }
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("Lịch sử thông báo") },
+                                    onClick = {
+                                        showNotificationHistory = true
+                                        showMenu = false
+                                    },
+                                    leadingIcon = {
+                                        Icon(Icons.Default.History, contentDescription = "Lịch sử thông báo")
+                                    }
+                                )
+                                DropdownMenuItem(
                                     text = { Text("Đăng xuất") },
                                     onClick = {
                                         authViewModel.logout()
-                                        userViewModel.onLogout()
+                                        userViewModel.onLogout(context)
                                         showMenu = false
                                     },
                                     leadingIcon = {
@@ -235,27 +320,176 @@ fun WeatherApp(
                         }
                     }
                     // --- [KẾT THÚC YÊU CẦU 2] ---
-                }
-            )
+                    }
+                )
+            }
         }
     ) { paddingValues ->
-        Column(
-            modifier = Modifier
-                .padding(paddingValues)
-                .padding(16.dp)
-                .verticalScroll(rememberScrollState())
-        ) {
-            if (showAuthDialog) {
-                Dialog(onDismissRequest = { showAuthDialog = false }) {
-                    AuthScreen(authViewModel, userViewModel) {
-                        showAuthDialog = false
+        Log.d("MainActivity", "Scaffold body - showTrackedLocations=$showTrackedLocations, user=${user?.userId}, showNotificationSettings=$showNotificationSettings, showNotificationHistory=$showNotificationHistory")
+        when {
+            showNotificationSettings && user != null -> {
+                val database = com.example.dubaothoitiet.data.database.NotificationDatabase.getDatabase(context)
+                val networkMonitor = com.example.dubaothoitiet.data.NetworkMonitor(context)
+                val notificationRepository = remember {
+                    com.example.dubaothoitiet.data.NotificationRepository(
+                        apiService = com.example.dubaothoitiet.api.RetrofitInstance.api,
+                        database = database,
+                        networkMonitor = networkMonitor
+                    )
+                }
+                val viewModel: com.example.dubaothoitiet.viewmodel.NotificationSettingsViewModel = 
+                    androidx.lifecycle.viewmodel.compose.viewModel(
+                        factory = com.example.dubaothoitiet.viewmodel.NotificationSettingsViewModelFactory(
+                            repository = notificationRepository,
+                            userId = user!!.userId.toInt()
+                        )
+                    )
+                
+                BackHandler {
+                    showNotificationSettings = false
+                }
+                
+                com.example.dubaothoitiet.ui.NotificationSettingsScreen(
+                    viewModel = viewModel,
+                    onBackClick = { showNotificationSettings = false }
+                )
+            }
+            
+            showNotificationHistory && user != null -> {
+                val database = com.example.dubaothoitiet.data.database.NotificationDatabase.getDatabase(context)
+                val networkMonitor = com.example.dubaothoitiet.data.NetworkMonitor(context)
+                val notificationRepository = remember {
+                    com.example.dubaothoitiet.data.NotificationRepository(
+                        apiService = com.example.dubaothoitiet.api.RetrofitInstance.api,
+                        database = database,
+                        networkMonitor = networkMonitor
+                    )
+                }
+                val viewModel: com.example.dubaothoitiet.viewmodel.NotificationHistoryViewModel = 
+                    androidx.lifecycle.viewmodel.compose.viewModel(
+                        factory = com.example.dubaothoitiet.viewmodel.NotificationHistoryViewModelFactory(
+                            repository = notificationRepository,
+                            userId = user!!.userId.toInt()
+                        )
+                    )
+                
+                BackHandler {
+                    showNotificationHistory = false
+                }
+                
+                com.example.dubaothoitiet.ui.NotificationHistoryScreen(
+                    viewModel = viewModel,
+                    onBackClick = { showNotificationHistory = false }
+                )
+            }
+            
+            showLocationSettings != null && user != null -> {
+                val (locationId, locationName) = showLocationSettings!!
+                val database = com.example.dubaothoitiet.data.database.NotificationDatabase.getDatabase(context)
+                val networkMonitor = com.example.dubaothoitiet.data.NetworkMonitor(context)
+                val notificationRepository = remember {
+                    com.example.dubaothoitiet.data.NotificationRepository(
+                        apiService = com.example.dubaothoitiet.api.RetrofitInstance.api,
+                        database = database,
+                        networkMonitor = networkMonitor
+                    )
+                }
+                val viewModel: com.example.dubaothoitiet.viewmodel.TrackedLocationsViewModel = 
+                    androidx.lifecycle.viewmodel.compose.viewModel(
+                        factory = com.example.dubaothoitiet.viewmodel.TrackedLocationsViewModelFactory(
+                            repository = notificationRepository
+                        )
+                    )
+                
+                val locationPreferences by viewModel.locationPreferences.collectAsState()
+                val isLoading by viewModel.isLoading.observeAsState(false)
+                
+                // Load preferences nếu chưa có
+                LaunchedEffect(locationId) {
+                    if (!locationPreferences.containsKey(locationId)) {
+                        viewModel.loadTrackedLocations(user!!.userId)
                     }
                 }
+                
+                BackHandler {
+                    showLocationSettings = null
+                    showTrackedLocations = true
+                }
+                
+                com.example.dubaothoitiet.ui.LocationNotificationSettingsScreen(
+                    locationId = locationId,
+                    locationName = locationName,
+                    notificationsEnabled = locationPreferences[locationId]?.notificationsEnabled ?: true,
+                    onNotificationToggle = { enabled ->
+                        viewModel.toggleLocationNotification(locationId, enabled)
+                    },
+                    onBackClick = { 
+                        showLocationSettings = null
+                        showTrackedLocations = true
+                    },
+                    isLoading = isLoading
+                )
             }
+            
+            showTrackedLocations && user != null -> {
+                val database = com.example.dubaothoitiet.data.database.NotificationDatabase.getDatabase(context)
+                val networkMonitor = com.example.dubaothoitiet.data.NetworkMonitor(context)
+                val notificationRepository = remember {
+                    com.example.dubaothoitiet.data.NotificationRepository(
+                        apiService = com.example.dubaothoitiet.api.RetrofitInstance.api,
+                        database = database,
+                        networkMonitor = networkMonitor
+                    )
+                }
+                val viewModel: com.example.dubaothoitiet.viewmodel.TrackedLocationsViewModel = 
+                    androidx.lifecycle.viewmodel.compose.viewModel(
+                        factory = com.example.dubaothoitiet.viewmodel.TrackedLocationsViewModelFactory(
+                            repository = notificationRepository
+                        )
+                    )
+                
+                BackHandler {
+                    showTrackedLocations = false
+                }
+                
+                TrackedLocationsScreen(
+                    userId = user!!.userId,
+                    viewModel = viewModel,
+                    onBackClick = { showTrackedLocations = false },
+                    onLocationClick = { locationName ->
+                        city = locationName
+                        val searchCity = removeVietnameseAccents(locationName)
+                        weatherViewModel.getWeather(searchCity)
+                        combinedAdviceViewModel.resetState()
+                        showTrackedLocations = false
+                    },
+                    onLocationSettingsClick = { locationId ->
+                        // Tìm location name từ danh sách
+                        val location = viewModel.trackedLocations.value?.find { it.id == locationId }
+                        if (location != null) {
+                            showLocationSettings = Pair(locationId, location.name)
+                            showTrackedLocations = false
+                        }
+                    }
+                )
+            }
+            
+            else -> {
+                Column(
+                    modifier = Modifier
+                        .padding(paddingValues)
+                        .padding(16.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    if (showAuthDialog) {
+                        Dialog(onDismissRequest = { showAuthDialog = false }) {
+                            AuthScreen(authViewModel, userViewModel) {
+                                showAuthDialog = false
+                            }
+                        }
+                    }
 
-
-
-            WeatherScreen(
+                    WeatherScreen(
                 weatherResult = weatherResult,
                 combinedAdviceViewModel = combinedAdviceViewModel,
                 city = city,
@@ -280,8 +514,10 @@ fun WeatherApp(
                 },
                 isLoggedIn = (user != null) // Kiểm tra user gốc
             )
-        }
-    }
+                }  // Đóng Column
+            }      // Đóng else
+        }          // Đóng when
+    }              // Đóng Scaffold body
 }
 
 
@@ -329,16 +565,15 @@ fun WeatherScreen(
                 result.isSuccess -> {
                     if (weatherData != null) {
                         CurrentWeather(weather = weatherData)
-                        Spacer(modifier = Modifier.height(10.dp))
-//                        Button(
-//                            onClick = {
-//                                val locationNameEn = removeVietnameseAccents(weatherData.location.name)
-//                                combinedAdviceViewModel.generateNewAdvice(locationNameEn) // <-- SỬ DỤNG VIEWMODEL MỚI
-//                            },
-//                            enabled = combinedState !is CombinedAdviceUiState.Loading // <-- ĐÃ SỬA STATE
-//                        ) {
-//                            Text("💡 Nhận Lời khuyên/Cảnh báo AI")
-//                        }
+                        
+                        Spacer(modifier = Modifier.height(16.dp))
+                        
+                        // Biểu đồ thời tiết (Rain, UV, AQI)
+                        com.example.dubaothoitiet.ui.WeatherChartsScreen(
+                            weatherData = weatherData,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        
                         Spacer(modifier = Modifier.height(16.dp))
 
                         CombinedAdviceSection(
@@ -349,6 +584,14 @@ fun WeatherScreen(
                             },
                             onDismiss = { combinedAdviceViewModel.dismiss() }
                         )
+                        
+                        // Hiển thị cảnh báo thiên tai nếu có
+                        weatherData.alerts?.alert?.let { alerts ->
+                            if (alerts.isNotEmpty()) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                WeatherAlertsSection(alerts = alerts)
+                            }
+                        }
 
                         if (isLoggedIn) {
                             Spacer(modifier = Modifier.height(16.dp))
@@ -453,7 +696,7 @@ fun DailyForecast(
     onDaySelected: (ForecastDay) -> Unit
 ) {
     Column(modifier = Modifier.fillMaxWidth()) {
-        Text("Dự báo 7 ngày", style = MaterialTheme.typography.titleMedium)
+        Text("Dự báo 3 ngày", style = MaterialTheme.typography.titleMedium)
         Spacer(modifier = Modifier.height(8.dp))
         Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
             forecastDays.forEach { forecastDay ->
@@ -1028,6 +1271,157 @@ fun CombinedAdviceSection(
             }
             // Cân nhắc thêm nút "Thử lại" ở đây nếu muốn:
             // Button(onClick = onGenerateAdvice) { Text("Thử lại") }
+        }
+    }
+}
+
+@Composable
+fun WeatherAlertsSection(alerts: List<com.example.dubaothoitiet.data.WeatherAlert>) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        alerts.forEach { alert ->
+            WeatherAlertCard(alert = alert)
+        }
+    }
+}
+
+@Composable
+fun WeatherAlertCard(alert: com.example.dubaothoitiet.data.WeatherAlert) {
+    var expanded by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when (alert.severity?.lowercase()) {
+                "extreme" -> Color(0xFFD32F2F) // Đỏ đậm
+                "severe" -> Color(0xFFFF6F00) // Cam đậm
+                "moderate" -> Color(0xFFFFA726) // Cam nhạt
+                else -> Color(0xFFFFF59D) // Vàng nhạt
+            }
+        ),
+        elevation = CardDefaults.cardElevation(4.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { expanded = !expanded }
+                .padding(16.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = "Cảnh báo",
+                    tint = Color.White,
+                    modifier = Modifier.size(32.dp)
+                )
+                
+                Spacer(modifier = Modifier.width(12.dp))
+                
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = alert.event,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    
+                    alert.severity?.let {
+                        Text(
+                            text = "Mức độ: $it",
+                            fontSize = 12.sp,
+                            color = Color.White.copy(alpha = 0.9f)
+                        )
+                    }
+                }
+                
+                Icon(
+                    imageVector = if (expanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                    contentDescription = if (expanded) "Thu gọn" else "Mở rộng",
+                    tint = Color.White
+                )
+            }
+            
+            Spacer(modifier = Modifier.height(8.dp))
+            
+            // Headline
+            Text(
+                text = alert.headline,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            
+            // Expanded content
+            if (expanded) {
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                HorizontalDivider(color = Color.White.copy(alpha = 0.3f))
+                
+                Spacer(modifier = Modifier.height(12.dp))
+                
+                // Description
+                Text(
+                    text = alert.desc,
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.95f)
+                )
+                
+                // Instruction
+                alert.instruction?.let { instruction ->
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = Color.White.copy(alpha = 0.2f)
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Text(
+                                text = "Hướng dẫn:",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = instruction,
+                                fontSize = 13.sp,
+                                color = Color.White.copy(alpha = 0.95f)
+                            )
+                        }
+                    }
+                }
+                
+                // Time info
+                Spacer(modifier = Modifier.height(8.dp))
+                
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    alert.effective?.let {
+                        Text(
+                            text = "Hiệu lực: ${it.substring(0, 16).replace("T", " ")}",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+                    
+                    alert.expires?.let {
+                        Text(
+                            text = "Hết hạn: ${it.substring(0, 16).replace("T", " ")}",
+                            fontSize = 11.sp,
+                            color = Color.White.copy(alpha = 0.8f)
+                        )
+                    }
+                }
+            }
         }
     }
 }

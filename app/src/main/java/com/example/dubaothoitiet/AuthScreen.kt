@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -51,11 +52,13 @@ fun AuthScreen(
         authViewModel.resetState()
     }
 
+    val context = LocalContext.current
+    
     // Khi xác thực thành công, cập nhật user state và đóng dialog
     LaunchedEffect(authState) {
         val state = authState
         if (state is AuthState.Authenticated) {
-            userViewModel.onLoginSuccess(state.userId, state.username)
+            userViewModel.onLoginSuccess(state.userId, state.username, context)
             onAuthSuccess()
         }
     }
